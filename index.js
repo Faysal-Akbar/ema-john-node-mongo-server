@@ -1,10 +1,19 @@
 const express = require('express');
 const { MongoClient } = require('mongodb');
 const cors = require('cors');
+const { query } = require('express');
 require('dotenv').config();
+var admin = require("firebase-admin");
 
 const app = express();
 const port = process.env.PORT || 5000;
+
+
+var serviceAccount = require('./ema-john-simple-bb524-firebase-adminsdk-75r56-fcf2f6acc6.json');
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 
 //middleware
 app.use(cors());
@@ -12,6 +21,21 @@ app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.rqp1u.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+
+async function verifyToken(req, res, next){
+    if(req.headers?.authorization?.startsWith('Bearer ')){
+        const idToken = req.headers.authorization.split('Bearer ')[1];
+        try{
+            const decodedUser = await admin.auth().verifyIdToken(idToken);
+            req.decodedUserEmail = decodedUser.email;
+           
+        }
+        catch{
+
+        }
+    }
+    next();
+}
 
 async function run() {
     try{
@@ -47,9 +71,24 @@ async function run() {
             res.json(products);
         })
 
+        //order GET 
+        app.get('/orders', verifyToken, async(req, res) => {
+            const email = req.query.email;
+            if(req.decodedUserEmail === email){
+                const query = {email : email}
+                const cursor = orderCollection.find(query);
+                const result = await cursor.toArray();
+                res.send(result);
+            }
+            else{
+                res.status(401).json({message: 'User Not Authorized'})
+            }
+        })
+
         //Order to POST
         app.post('/orders', async(req, res) => {
             const order = req.body;
+            order.createdAt = new Date();
             const result = await orderCollection.insertOne(order);
             res.send(result);
         })
